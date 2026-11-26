@@ -87,6 +87,27 @@ def play_audio(slot, audio_path):
         components.html(html, height=0)
 
 
+def get_rtc_configuration():
+    """STUN mặc định; thêm TURN nếu có khai báo [turn] trong Secrets."""
+    ice_servers = [{"urls": ["stun:stun.l.google.com:19302"]}]
+    turn = None
+    try:
+        if "turn" in st.secrets:
+            turn = st.secrets["turn"]
+    except Exception:
+        turn = None
+    if turn:
+        urls = turn["urls"]
+        if isinstance(urls, str):
+            urls = [urls]
+        ice_servers.append({
+            "urls": list(urls),
+            "username": turn["username"],
+            "credential": turn["credential"],
+        })
+    return {"iceServers": ice_servers}, turn is not None
+
+
 st.set_page_config(page_title="AI Blind Assistant", page_icon="🦯",
                    layout="wide")
 st.title("🦯 AI Blind Assistant")
@@ -150,6 +171,14 @@ with tab_live:
         return av.VideoFrame.from_ndarray(draw(bgr, detections),
                                           format="bgr24")
 
+    rtc_configuration, has_turn = get_rtc_configuration()
+    if not has_turn:
+        st.info(
+            "Nếu camera cứ báo \"Connection is taking longer than expected\", "
+            "mạng của bạn đang chặn WebRTC. Hãy dùng tab **Chụp / tải ảnh**, "
+            "hoặc cấu hình máy chủ TURN trong Secrets."
+        )
+
     ctx = webrtc_streamer(
         key="blind-assistant",
         mode=WebRtcMode.SENDRECV,
@@ -158,9 +187,7 @@ with tab_live:
             "video": {"width": {"ideal": 640}, "height": {"ideal": 480}},
             "audio": False,
         },
-        rtc_configuration={
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        },
+        rtc_configuration=rtc_configuration,
         async_processing=True,
     )
 
